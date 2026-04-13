@@ -1,6 +1,6 @@
 // api/proxy.js - Proxy CORS para Google Apps Script
 
-// ⭐ URL DO SEU NOVO GOOGLE APPS SCRIPT
+// URL do seu Google Apps Script
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxS8sqLREMnoymQ_1Dy5AZ_BQn7iN_2lx42Z9yKswcRSNCzppEn-ILXlB0CjdUav93PlA/exec';
 
 // Cache em memória para GET (estatísticas)
@@ -15,10 +15,9 @@ function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
+  res.setHeader('Access-Control-Max-Age', '86400');
 }
 
-// Função principal do handler
 export default async function handler(req, res) {
   // Configurar CORS para todas as respostas
   setCorsHeaders(res);
@@ -29,15 +28,22 @@ export default async function handler(req, res) {
   }
 
   try {
-    const url = new URL(SCRIPT_URL);
-    
-    // Extrair a action dos parâmetros da query
+    // ⭐ EXTRAIR ACTION DA QUERY STRING
     const action = req.query.action;
-    if (action) {
-      url.searchParams.set('action', action);
+    
+    if (!action) {
+      console.error('❌ Action não fornecida na query string');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Parâmetro "action" é obrigatório na URL' 
+      });
     }
 
-    console.log(`🔄 Proxy: ${req.method} ${url.toString()}`);
+    console.log(`🔄 Proxy: ${req.method} - action: ${action}`);
+
+    // Construir a URL com o parâmetro action
+    const url = new URL(SCRIPT_URL);
+    url.searchParams.set('action', action);
 
     // Para requisições GET (estatísticas), verificar cache
     if (req.method === 'GET' && action === 'getEstatisticas') {
@@ -56,9 +62,10 @@ export default async function handler(req, res) {
       },
     };
 
-    // Para POST, incluir o body
+    // Para POST, incluir o body como JSON
     if (req.method === 'POST') {
       fetchOptions.body = JSON.stringify(req.body);
+      console.log(`📤 Enviando POST com body: ${fetchOptions.body.substring(0, 200)}...`);
     }
 
     // Fazer a requisição para o Google Apps Script
@@ -67,19 +74,19 @@ export default async function handler(req, res) {
     // Tentar ler a resposta como texto primeiro
     const text = await response.text();
     
+    console.log(`📡 Resposta do Apps Script (${response.status}): ${text.substring(0, 300)}`);
+    
     let data;
     try {
       data = JSON.parse(text);
     } catch (e) {
-      // Se não for JSON, retornar como texto
+      console.error('❌ Resposta não é JSON:', text.substring(0, 200));
       data = { 
         success: false, 
-        message: 'Resposta não-JSON do servidor', 
+        message: 'Resposta inválida do servidor', 
         raw: text.substring(0, 500) 
       };
     }
-
-    console.log(`✅ Resposta do Apps Script: ${response.status}`);
 
     // Atualizar cache para GET de estatísticas
     if (req.method === 'GET' && action === 'getEstatisticas' && data.success) {
