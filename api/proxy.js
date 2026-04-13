@@ -1,4 +1,4 @@
-// api/proxy.js - Proxy CORS para Google Apps Script (VERSÃO CORRIGIDA)
+// api/proxy.js - Versão Simplificada e Corrigida
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxS8sqLREMnoymQ_1Dy5AZ_BQn7iN_2lx42Z9yKswcRSNCzppEn-ILXlB0CjdUav93PlA/exec';
 
@@ -13,66 +13,68 @@ export default async function handler(req, res) {
   }
 
   try {
-    // ⭐ PEGAR ACTION DA URL (QUERY STRING)
-    const action = req.query.action;
+    // ⭐⭐⭐ PEGAR ACTION DA URL - CORRIGIDO ⭐⭐⭐
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const action = url.searchParams.get('action');
     
-    console.log('🔵 Proxy recebeu:', {
-      method: req.method,
-      action: action,
-      query: req.query,
-      body: req.body ? 'present' : 'empty'
-    });
+    console.log('=== PROXY LOG ===');
+    console.log('URL completa:', req.url);
+    console.log('Action extraída:', action);
+    console.log('Método:', req.method);
+    console.log('Body presente:', !!req.body);
 
     if (!action) {
-      console.error('❌ Action não fornecida');
+      console.error('❌ Action não encontrada na URL');
       return res.status(400).json({ 
         success: false, 
-        message: 'Parâmetro "action" é obrigatório' 
+        message: 'Parâmetro "action" é obrigatório na URL',
+        receivedUrl: req.url 
       });
     }
 
-    // ⭐ CONSTRUIR URL CORRETAMENTE
-    const url = `${SCRIPT_URL}?action=${action}`;
-    console.log('🔗 URL do Apps Script:', url);
+    // Construir URL final
+    const targetUrl = `${SCRIPT_URL}?action=${action}`;
+    console.log('🎯 URL destino:', targetUrl);
 
-    // ⭐ PREPARAR BODY PARA POST
-    let body = undefined;
-    if (req.method === 'POST' && req.body) {
-      body = JSON.stringify(req.body);
-      console.log('📦 Body size:', body.length, 'bytes');
-    }
-
-    // ⭐ FAZER REQUISIÇÃO AO GOOGLE APPS SCRIPT
-    const response = await fetch(url, {
+    // Configurar requisição
+    const fetchOptions = {
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
       },
-      body: body,
-    });
+    };
 
+    if (req.method === 'POST' && req.body) {
+      fetchOptions.body = JSON.stringify(req.body);
+      console.log('📦 Body tamanho:', fetchOptions.body.length);
+    }
+
+    // Fazer requisição
+    const response = await fetch(targetUrl, fetchOptions);
     const text = await response.text();
-    console.log('📡 Resposta do Apps Script:', text.substring(0, 200));
+    
+    console.log('📡 Resposta recebida:', text.substring(0, 200));
 
+    // Tentar parse JSON
     let data;
     try {
       data = JSON.parse(text);
-    } catch (e) {
-      console.error('❌ Resposta não é JSON:', text);
+    } catch {
       data = { 
         success: false, 
-        message: 'Resposta inválida do servidor',
-        raw: text 
+        message: 'Resposta não-JSON',
+        raw: text.substring(0, 100)
       };
     }
 
     return res.status(response.status).json(data);
 
   } catch (error) {
-    console.error('💥 Erro no proxy:', error);
+    console.error('💥 Erro fatal:', error);
     return res.status(500).json({ 
       success: false, 
-      message: 'Erro no proxy: ' + error.message 
+      message: 'Erro no servidor proxy',
+      error: error.message 
     });
   }
 }
