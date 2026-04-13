@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     { 
-      "src": "api/proxy.js", 
+      "src": "api/notas.js", 
       "use": "@vercel/node" 
     }
   ],
   "routes": [
     {
-      "src": "/api/proxy",
-      "dest": "/api/proxy.js",
+      "src": "/api/notas",
+      "dest": "/api/notas.js",
       "methods": ["GET", "POST", "OPTIONS"]
     }
   ],
