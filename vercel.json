@@ -1,29 +1,16 @@
 {
   "version": 2,
-  "name": "api-controle-ecru",
   "builds": [
     { 
       "src": "api/proxy.js", 
-      "use": "@vercel/node" 
-    },
-    { 
-      "src": "api/notas.js", 
       "use": "@vercel/node" 
     }
   ],
   "routes": [
     {
       "src": "/api/proxy",
-      "dest": "/api/proxy.js"
-    },
-    {
-      "src": "/api/notas",
-      "dest": "/api/notas.js"
-    },
-    {
-      "src": "/(.*)",
-      "status": 404,
-      "dest": "/404"
+      "dest": "/api/proxy.js",
+      "methods": ["GET", "POST", "OPTIONS"]
     }
   ],
   "headers": [
@@ -31,9 +18,8 @@
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" },
-        { "key": "Access-Control-Max-Age", "value": "86400" }
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
       ]
     }
   ]
