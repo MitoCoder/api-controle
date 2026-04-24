@@ -4,6 +4,10 @@
     { 
       "src": "api/notas.js", 
       "use": "@vercel/node" 
+    },
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -11,6 +15,14 @@
       "src": "/api/notas",
       "dest": "/api/notas.js",
       "methods": ["GET", "POST", "OPTIONS"]
+    },
+    {
+      "src": "/api/index",
+      "dest": "/api/index.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.js"
     }
   ],
   "headers": [
