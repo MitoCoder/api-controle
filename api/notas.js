@@ -1,107 +1,74 @@
-// /api/notas.js
+﻿import { applyCors, isPreflight, jsonError } from './_lib/http.js';
+import { callAppsScript, getCached, setCached } from './_lib/sheetsClient.js';
+import { isAllowedAction, normalizeAction, shouldCacheAction } from './_lib/actions.js';
 
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxS8sqLREMnoymQ_1Dy5AZ_BQn7iN_2lx42Z9yKswcRSNCzppEn-ILXlB0CjdUav93PlA/exec';
+const TAMANHO_LOTE = 200;
+const DELAY_ENTRE_LOTES = 200;
+const CACHE_TTL_MS = 10000;
 
-// 🔥 CONFIGURAÇÃO PROFISSIONAL
-const TAMANHO_LOTE = 200; // ideal pro Apps Script
-const MAX_RETRY = 3;
-const DELAY_ENTRE_LOTES = 200; // ms
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// ⏱️ delay helper
-const delay = (ms) => new Promise(res => setTimeout(res, ms));
-
-// 🔁 retry inteligente
-const enviarComRetry = async (payload, tentativa = 1) => {
-  try {
-    const response = await fetch(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    const text = await response.text();
-
+function parseBody(req) {
+  if (!req.body) return {};
+  if (typeof req.body === 'object') return req.body;
+  if (typeof req.body === 'string') {
     try {
-      return JSON.parse(text);
+      return JSON.parse(req.body);
     } catch {
-      throw new Error('Resposta inválida');
+      return {};
     }
-
-  } catch (err) {
-
-    if (tentativa < MAX_RETRY) {
-      console.log(`🔁 Retry ${tentativa}...`);
-      await delay(500 * tentativa);
-      return enviarComRetry(payload, tentativa + 1);
-    }
-
-    throw err;
   }
-};
+  return {};
+}
 
 export default async function handler(req, res) {
+  applyCors(req, res);
 
-  // =========================================
-  // CORS
-  // =========================================
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (isPreflight(req)) {
+    return res.status(204).end();
+  }
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+  if (!['GET', 'POST'].includes(req.method)) {
+    return jsonError(res, 405, `Metodo ${req.method} nao permitido`);
+  }
+
+  const body = parseBody(req);
+  const action = normalizeAction(req.query.action || body.action);
+
+  if (!action) {
+    return jsonError(res, 400, 'Action nao fornecida');
+  }
+
+  if (!isAllowedAction(action)) {
+    return jsonError(res, 400, `Action invalida: ${action}`);
   }
 
   try {
+    const dados = body.dados;
 
-    const action = req.query.action || req.body?.action;
-
-    if (!action) {
-      return res.status(400).json({
-        success: false,
-        message: 'Action não fornecida'
-      });
-    }
-
-    console.log('➡️ Action:', action);
-
-    const dados = req.body?.dados;
-
-    // =========================================
-    // 🔥 SE FOR IMPORTAÇÃO GRANDE
-    // =========================================
-    if (action === 'importar' && Array.isArray(dados)) {
+    if (action === 'importar') {
+      if (!Array.isArray(dados) || dados.length === 0) {
+        return jsonError(res, 400, 'Para importar, envie um array em dados');
+      }
 
       const total = dados.length;
       let enviados = 0;
       let sucesso = 0;
 
-      console.log(`📦 Total de registros: ${total}`);
-
       for (let i = 0; i < total; i += TAMANHO_LOTE) {
-
         const lote = dados.slice(i, i + TAMANHO_LOTE);
+        const resposta = await callAppsScript({ action, dados: lote });
 
-        const payload = {
-          action,
-          dados: lote
-        };
-
-        console.log(`🚀 Enviando lote ${i / TAMANHO_LOTE + 1}`);
-
-        const resposta = await enviarComRetry(payload);
-
-        if (!resposta.success) {
-          throw new Error(resposta.message || 'Erro no lote');
+        if (!resposta?.success) {
+          throw new Error(resposta?.message || 'Erro ao importar lote');
         }
 
         enviados += lote.length;
-        sucesso += resposta.novas || lote.length;
+        sucesso += Number(resposta?.novas || lote.length);
 
-        console.log(`✅ Progresso: ${enviados}/${total}`);
-
-        // evita travar Apps Script
-        await delay(DELAY_ENTRE_LOTES);
+        if (enviados < total) {
+          await delay(DELAY_ENTRE_LOTES);
+        }
       }
 
       return res.status(200).json({
@@ -111,43 +78,28 @@ export default async function handler(req, res) {
       });
     }
 
-    // =========================================
-    // 🔥 OUTRAS AÇÕES (SEM ALTERAÇÃO)
-    // =========================================
-    const payload = {
-      ...req.body,
-      action
-    };
+    const payload = { ...body, action };
 
-    const response = await fetch(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+    if (shouldCacheAction(action)) {
+      const cached = getCached(payload);
+      if (cached) {
+        return res.status(200).json(cached);
+      }
+    }
 
-    const text = await response.text();
+    const data = await callAppsScript(payload);
 
-    let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = {
-        success: false,
-        message: 'Resposta inválida do Apps Script',
-        raw: text
-      };
+    if (shouldCacheAction(action)) {
+      setCached(payload, data, CACHE_TTL_MS);
     }
 
     return res.status(200).json(data);
-
   } catch (error) {
+    const isTimeout = error?.name === 'AbortError';
+    const message = isTimeout
+      ? 'Timeout ao consultar Google Sheets. Tente novamente.'
+      : `Erro interno: ${error.message}`;
 
-    console.error('💥 ERRO API:', error);
-
-    return res.status(500).json({
-      success: false,
-      message: 'Erro interno: ' + error.message
-    });
+    return jsonError(res, isTimeout ? 504 : 500, message);
   }
 }
